@@ -42,7 +42,7 @@ class Vocab:
         return Vocab(tokens)
 
 
-def build_vocabulary(documents, tokenizer, min_df=7):
+def build_vocab(documents, tokenizer, min_df=7):
     """Builds vocabulary of tokens from a collection of documents.
 
     Args:
@@ -67,3 +67,24 @@ def build_vocabulary(documents, tokenizer, min_df=7):
     vocab = Vocab(tokens)
 
     return vocab
+
+
+def build_vocab_from_file(captions_file, tokenizer, min_df=7):
+    """Builds vocabulary from captions file.
+
+    Args:
+        captions_file (str): path to the file with captions
+        tokenizer (Tokenizer): Tokenizer object
+        min_df (int): minimum document frequency for tokens
+
+    Returns:
+        Vocab: vocabulary of tokens
+    """
+
+    captions = []
+    with open(captions_file) as f:
+        for line in f:
+            _, _, caption = line.strip().split('\t')
+            captions.append(caption)
+
+    return build_vocab(captions, tokenizer, min_df=min_df)

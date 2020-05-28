@@ -4,7 +4,8 @@ import torch
 from PIL import Image
 from torch.utils.data import Dataset
 
-from data import SPECIAL_TOKENS, WordPunctTokenizer
+from .vocab import SPECIAL_TOKENS
+from .tokenizers import WordPunctTokenizer
 
 
 class MemeDataset(Dataset):

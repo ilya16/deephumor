@@ -20,7 +20,7 @@ class WordPunctTokenizer:
         return self.token_pattern.findall(text)
 
 
-class CharacterTokenizer:
+class CharTokenizer:
     """Character-level tokenizer that preserves special tokens in `<>`."""
 
     token_pattern = re.compile(r"<\w+>|[\w'!#$%&\()*+,\-./:;=?@\\^{|}~]")
