@@ -26,9 +26,9 @@ python crawl_data.py --source memegenerator.net --save-dir ../memes \
     --min-len 10 --max-len 96 --max-tokens 31
 ```
 
-Then, split the data using:
+Then, split the data into `train/val/test` using:
 ```shell script
-python split_data.py --data-dir ../memes
+python split_data.py --data-dir ../memes --splits 2500 250 250
 ```
 
 

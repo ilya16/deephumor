@@ -172,7 +172,7 @@ class MemeGeneratorCrawler:
             # parse page with templates
             templates = crawl_templates(page=temp_page)
             print(f'{time_to_str(time.time() - start_time)}, '
-                  f'{100 * float(total_templates) / num_templates / num_captions:5.2f}%: '
+                  f'{100 * float(total_captions) / num_templates / num_captions:5.2f}%: '
                   f'Crawling page {temp_page} with {len(templates)} templates')
 
             # load captions in async mode
@@ -203,7 +203,7 @@ class MemeGeneratorCrawler:
                     if prob_en < 0.9:
                         # non-english, stop processing
                         print(f'{time_to_str(time.time() - start_time)}, '
-                              f'{100 * float(total_templates) / num_templates / num_captions:5.2f}%: '
+                              f'{100 * float(total_captions) / num_templates / num_captions:5.2f}%: '
                               f'   NON_ENGLISH {label} - {len(self.captions[link])} captions (eng:{prob_en:.3f})')
                         continue
                 else:
@@ -254,7 +254,7 @@ class MemeGeneratorCrawler:
                 if len(unique_captions) < num_captions:
                     # skip template
                     print(f'{time_to_str(time.time() - start_time)}, '
-                          f'{100 * float(total_templates) / num_templates / num_captions:5.2f}%: '
+                          f'{100 * float(total_captions) / num_templates / num_captions:5.2f}%: '
                           f'   NOT_ENOUGH {label} - {len(unique_captions)} captions (eng:{prob_en:.3f})')
                     continue
 
@@ -284,7 +284,7 @@ class MemeGeneratorCrawler:
                 del self.total_texts[link]
 
                 print(f'{time_to_str(time.time() - start_time)}, '
-                      f'{100 * float(total_templates) / num_templates / num_captions:5.2f}%: '
+                      f'{100 * float(total_captions) / num_templates / num_captions:5.2f}%: '
                       f'   {label} - {len(captions)} captions ({total_captions}) (pid:{page}, en:{prob_en:.3f})')
 
                 if total_templates == num_templates:
@@ -292,7 +292,7 @@ class MemeGeneratorCrawler:
                     break
 
             print(f'{time_to_str(time.time() - start_time)}, '
-                  f'{100 * float(total_templates) / num_templates / num_captions:5.2f}%: '
+                  f'{100 * float(total_captions) / num_templates / num_captions:5.2f}%: '
                   f'Crawled  page {temp_page} with {total_page_templates} templates '
                   f'and {total_page_captions} captions ({total_templates}/{total_captions})')
 
