@@ -9,7 +9,7 @@ from Levenshtein import ratio as sim_ratio
 from lxml import html
 
 from crawlers.utils import time_to_str, load_image
-from utils.text import clean_text, check_text, english_prob
+from data.utils import clean_text, check_text, english_prob
 
 
 def crawl_templates(page=1):

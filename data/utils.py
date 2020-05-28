@@ -4,7 +4,7 @@ from langdetect import detect_langs
 
 TOKEN_PATTERN = re.compile(r"[<\w'>]+|[!#$%&\()*+,\-./:;=?@\\^{|}~]+")
 PUNCT_PATTERN_0 = re.compile(r"([<>|\\])+")
-PUNCT_PATTERN_1 = re.compile(r"([%&\()*+,\-/:;=@^{|}~\"])+")
+PUNCT_PATTERN_1 = re.compile(r"([%&\()*+,\-/:;=@^{}~\"])+")
 PUNCT_PATTERN_23 = re.compile(r"([\.?!$#_]){4,}")
 
 
