@@ -1,0 +1,6 @@
+numpy
+torch
+requests
+lxml
+langdetect
+python-Levenshtein
