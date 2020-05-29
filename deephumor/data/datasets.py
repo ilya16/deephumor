@@ -75,6 +75,9 @@ class MemeDataset(Dataset):
         # replace with `UNK`
         tokens = [tok if tok in self.vocab.stoi else SPECIAL_TOKENS['UNK'] for tok in tokens]
 
+        # add `EOS`
+        tokens += [SPECIAL_TOKENS['EOS']]
+
         # convert to ids
         tokens = [self.vocab.stoi[tok] for tok in tokens]
 
