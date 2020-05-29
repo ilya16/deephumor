@@ -15,7 +15,6 @@ if __name__ == '__main__':
                         help='random seed for the data shuffling')
 
     args = parser.parse_args()
-    assert args.source == 'memegenerator.net', 'Only memegenerator.net is supported'
 
     np.random.seed(0)
     start_ids = np.cumsum([0] + args.splits)

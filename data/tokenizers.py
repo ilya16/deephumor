@@ -14,7 +14,7 @@ class Tokenizer:
 class WordPunctTokenizer:
     """WordPunctuation tokenizer."""
 
-    token_pattern = re.compile(r"[<\w'>]+|[!#$%&\()*+,\-./:;=?@\\^{|}~]+")
+    token_pattern = re.compile(r"[<\w'>]+|[^\w\s]+")
 
     def tokenize(self, text):
         return self.token_pattern.findall(text)
@@ -23,7 +23,7 @@ class WordPunctTokenizer:
 class CharTokenizer:
     """Character-level tokenizer that preserves special tokens in `<>`."""
 
-    token_pattern = re.compile(r"<\w+>|[\w'!#$%&\()*+,\-./:;=?@\\^{|}~]")
+    token_pattern = re.compile(r"<\w+>|.")
 
     def tokenize(self, text):
         return self.token_pattern.findall(text)
