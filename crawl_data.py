@@ -1,6 +1,6 @@
 import argparse
 
-from crawlers.memegenerator import MemeGeneratorCrawler
+from deephumor.crawlers import MemeGeneratorCrawler
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Meme dataset crawler')

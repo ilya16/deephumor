@@ -3,7 +3,7 @@ from PIL import ImageFont, ImageDraw
 from copy import deepcopy
 
 
-MEME_FONT_PATH = '../fonts/impact.ttf'
+MEME_FONT_PATH = '../../fonts/impact.ttf'
 
 
 def memeify_image(img, top='', bottom='', font_path=MEME_FONT_PATH):
