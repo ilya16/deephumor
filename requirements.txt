@@ -4,3 +4,4 @@ requests
 lxml
 langdetect
 python-Levenshtein
+pillow
