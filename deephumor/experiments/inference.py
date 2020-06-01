@@ -47,8 +47,8 @@ def split_caption(text, num_blocks=None):
 
     def _clean_text_block(text_block):
         text_block = re.sub(r'<\w+>', '', text_block)
-        text_block = re.sub(r'^\\s+', '', text_block)
-        text_block = re.sub(r'\\s+$', '', text_block)
+        text_block = re.sub(r'^\s+', '', text_block)
+        text_block = re.sub(r'\s+$', '', text_block)
         text_block = PUNCT_PATTERN.sub('\\2', text_block)
         return text_block
 
@@ -60,6 +60,6 @@ def split_caption(text, num_blocks=None):
     if num_blocks is None:
         num_blocks = len(text_blocks)
     elif len(text_blocks) < num_blocks:
-        num_blocks += [''] * (len(text_blocks) - num_blocks)
+        text_blocks += [''] * (len(text_blocks) - num_blocks)
 
     return text_blocks[:num_blocks]
