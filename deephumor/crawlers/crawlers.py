@@ -9,6 +9,7 @@ from Levenshtein import ratio as sim_ratio
 from lxml import html
 
 from .utils import time_to_str, load_image
+from deephumor.data import SPECIAL_TOKENS
 from deephumor.data.utils import clean_text, check_text, english_prob
 
 
@@ -270,9 +271,9 @@ class MemeGeneratorCrawler:
 
                 # save captions
                 for (score, top, bot) in captions:
-                    top = top if top else '<et>'
-                    bot = bot if bot else '<eb>'
-                    text = top + ' <sep> ' + bot
+                    top = top if top else SPECIAL_TOKENS['EMPTY']
+                    bot = bot if bot else SPECIAL_TOKENS['EMPTY']
+                    text = top + ' ' + SPECIAL_TOKENS['SEP'] + ' ' + bot
                     captions_file.write(f'{label}\t{score}\t{text}\n')
 
                 total_captions += len(captions)

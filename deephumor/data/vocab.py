@@ -5,10 +5,10 @@ from collections import Counter
 SPECIAL_TOKENS = {
     'PAD': '<pad>',
     'UNK': '<unk>',
-    'SEP': '<sep>',
+    'BOS': '<bos>',
     'EOS': '<eos>',
-    'EMPTY_TOP': '<et>',
-    'EMPTY_BOTTOM': '<eb>',
+    'SEP': '<sep>',
+    'EMPTY': '<emp>',
 }
 
 
