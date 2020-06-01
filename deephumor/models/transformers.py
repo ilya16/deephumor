@@ -6,6 +6,8 @@ References:
 import torch
 from torch import nn
 
+from deephumor.models.beam import BeamSearchHelper
+
 
 def get_pad_mask(query, key, pad_index=0):
     """Computes padding mask from the Query and Key sequences.
@@ -440,7 +442,7 @@ class TransformerDecoder(nn.Module):
         Args:
             x (torch.Tensor): token sequences of shape `[bs, seq_len]`
             enc_out (torch.Tensor): encoder outputs of shape `[bs, seq_len, hid_dim]`
-            image_emb (torch.Tensor, optional): image embeddings of shape `[bs, hid_dim]`
+            image_emb (torch.Tensor, optional): image embedding of shape `[bs, hid_dim]`
 
         Returns:
             torch.Tensor: decoded sequences of shape `[bs, seq_len, num_tokens]`
@@ -495,8 +497,91 @@ class TransformerDecoder(nn.Module):
 
         return out
 
-    def inference_step(self, inputs, hidden=None):
-        inputs = self.embedding(inputs)
-        outputs, hidden = self.lstm(inputs, hidden)
-        outputs = self.linear(outputs.squeeze(1))
-        return outputs, hidden
+    def generate(self, image_emb, enc_out, caption=None, max_len=25,
+                 temperature=1.0, beam_size=10, top_k=50, eos_index=3):
+        """Generates text tokens based on the image embedding.
+
+        Args:
+            image_emb (torch.Tensor): image embedding of shape `[1, hid_dim]`
+            enc_out (torch.Tensor): encoder outputs of shape `[bs, seq_len, hid_dim]`
+            caption (torch.Tensor, optional): beginning tokens of the caption of shape `[1, seq_len]`
+            max_len (int): maximum length of the caption
+            temperature (float): temperature for softmax over logits
+            beam_size (int): number of maintained branches at each step
+            top_k (int): number of the most probable tokens to consider during sampling
+            eos_index (int): index of the EOS (end-of-sequence) token
+
+        Returns:
+            torch.Tensor: generated caption tokens of shape `[1, min(output_len, max_len)]`
+        """
+
+        # beam search sampling helper
+        helper = BeamSearchHelper(
+            temperature=temperature, beam_size=beam_size,
+            top_k=top_k, eos_index=eos_index,
+            device=image_emb.device
+        )
+
+        sample_seq = self.pad_index * torch.ones((1, max_len))
+        sample_seq = sample_seq.long().to(image_emb.device)
+
+        # process caption tokens if present
+        if caption is None:
+            pos = 0
+        else:
+            pos = caption.size(1)
+            sample_seq[:, :pos] = caption
+
+        # run TransformerDecoder over the inputs and predict the next token
+        outputs = self(sample_seq, enc_out, image_emb)
+        logits = outputs[:, pos, :]
+
+        # filter `top_k` values
+        logits = helper.filter_top_k(logits)
+
+        # compute probabilities and sample k values
+        sample_ind = helper.sample_k_indices(logits, k=beam_size)
+        sample_val = helper.filter_by_indices(logits, sample_ind).log_softmax(-1)
+        sample_ind, sample_val = sample_ind.T, sample_val.T
+
+        # update total prediction sequences
+        sample_seq = sample_seq.repeat(beam_size, 1)
+        sample_seq[:, pos:pos + 1] = sample_ind
+
+        # repeat `image_emb` and `enc_out`
+        enc_out = enc_out.repeat(beam_size, 1, 1)
+        image_emb = image_emb.repeat(beam_size, 1)
+
+        for i in range(pos + 1, max_len + 1):
+            # predict the next time step
+            outputs = self(sample_seq, enc_out, image_emb)
+            logits = outputs[:, i, :]
+
+            (prev_seqs, prev_vals), (new_ind, new_val) = helper.process_logits(
+                logits, sample_seq, sample_val
+            )
+
+            # create candidate sequences and compute their probabilities
+            prev_seqs[:, i:i + 1] = new_ind.unsqueeze(0).T
+            cand_seq = prev_seqs
+            cand_val = prev_vals.flatten() + new_val
+
+            # sample `beam` sequences
+            filter_ind = helper.sample_k_indices(cand_val, k=beam_size)
+
+            # update total sequences and their scores
+            sample_val = cand_val[filter_ind]
+            sample_seq = cand_seq[filter_ind]
+
+            # filter `has_ended` flags
+            helper.has_ended = helper.has_ended[filter_ind]
+
+            # check if every branch has ended
+            if helper.all_ended():
+                break
+
+        # sample output sequence
+        ind = helper.sample_k_indices(sample_val, k=1)
+        output_seq = sample_seq[ind, :i].squeeze()
+
+        return output_seq

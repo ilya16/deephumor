@@ -34,14 +34,30 @@ class CaptioningLSTM(nn.Module):
 
         return out
 
-    def generate(self, image, caption=None, max_len=25, temperature=1.0, beam_size=10, top_k=50):
+    def generate(self, image, caption=None, max_len=25,
+                 temperature=1.0, beam_size=10, top_k=50, eos_index=3):
+        """Generates caption for an image.
+
+        Args:
+            image (torch.Tensor): input image of shape `[1, width, height]`
+            caption (torch.Tensor, optional): beginning tokens of the caption of shape `[1, seq_len]`
+            max_len (int): maximum length of the caption
+            temperature (float): temperature for softmax over logits
+            beam_size (int): number of maintained branches at each step
+            top_k (int): number of the most probable tokens to consider during sampling
+            eos_index (int): index of the EOS (end-of-sequence) token
+
+        Returns:
+            torch.Tensor: generated caption tokens of shape `[1, min(output_len, max_len)]`
+        """
+
         # get image embedding
-        image_emb = self(image).unsqueeze(1)
+        image_emb = self.encoder(image).unsqueeze(1)
 
         sampled_ids = self.decoder.generate(
             image_emb, caption=caption,
             max_len=max_len, temperature=temperature,
-            beam_size=beam_size, top_k=top_k
+            beam_size=beam_size, top_k=top_k, eos_index=eos_index
         )
 
         return sampled_ids
@@ -79,12 +95,31 @@ class CaptioningLSTMWithLabels(nn.Module):
 
         return out
 
-    def inference(self, images, temperature=2, max_seg_length=25, k=10, most_probable=True):
-        encoded = self.encoder(images)
+    def generate(self, image, label, caption=None, max_len=25,
+                 temperature=1.0, beam_size=10, top_k=50, eos_index=3):
+        """Generates caption for an image based on the text label.
 
-        sampled_ids = self.decoder.inference(
-            encoded, temperature=temperature, max_seg_length=max_seg_length,
-            k=k, most_probable=most_probable
+        Args:
+            image (torch.Tensor): input image of shape `[1, width, height]`
+            label: (torch.Tensor): text label for the image `[1, label_len]`
+            caption (torch.Tensor, optional): beginning tokens of the caption of shape `[1, seq_len]`
+            max_len (int): maximum length of the caption
+            temperature (float): temperature for softmax over logits
+            beam_size (int): number of maintained branches at each step
+            top_k (int): number of the most probable tokens to consider during sampling
+            eos_index (int): index of the EOS (end-of-sequence) token
+
+        Returns:
+            torch.Tensor: generated caption tokens of shape `[1, min(output_len, max_len)]`
+        """
+
+        # get image embedding
+        image_emb = self.encoder(image, label).unsqueeze(1)
+
+        sampled_ids = self.decoder.generate(
+            image_emb, caption=caption,
+            max_len=max_len, temperature=temperature,
+            beam_size=beam_size, top_k=top_k, eos_index=eos_index
         )
 
         return sampled_ids
@@ -115,7 +150,7 @@ class CaptioningTransformer(nn.Module):
             n_layers (int): number of Decoder layers
             n_heads (int): number of attention heads
             pf_dim (int): dimensions of the position-wise layer
-            enc_dropout (float): image embeddigns dropout
+            enc_dropout (float): image embeddings dropout
             dec_dropout (float): attention and position-wise layer dropouts of the Decoder
             pad_index (int): index used for padding values in input sequences
             max_len (int): maximum lengths of input sequences.
@@ -154,3 +189,31 @@ class CaptioningTransformer(nn.Module):
         out = self.decoder(captions, enc_out=image_spacial_emb, image_emb=image_emb)
 
         return out
+
+    def generate(self, image, caption=None, max_len=25,
+                 temperature=1.0, beam_size=10, top_k=50, eos_index=3):
+        """Generates caption for an image.
+
+        Args:
+            image (torch.Tensor): input image of shape `[1, width, height]`
+            caption (torch.Tensor, optional): beginning tokens of the caption of shape `[1, seq_len]`
+            max_len (int): maximum length of the caption
+            temperature (float): temperature for softmax over logits
+            beam_size (int): number of maintained branches at each step
+            top_k (int): number of the most probable tokens to consider during sampling
+            eos_index (int): index of the EOS (end-of-sequence) token
+
+        Returns:
+            torch.Tensor: generated caption tokens of shape `[1, min(output_len, max_len)]`
+        """
+
+        # get image embeddings
+        image_emb, image_spacial_emb = self.encoder(image)
+
+        sampled_ids = self.decoder.generate(
+            image_emb, image_spacial_emb, caption=caption,
+            max_len=max_len, temperature=temperature,
+            beam_size=beam_size, top_k=top_k, eos_index=eos_index
+        )
+
+        return sampled_ids

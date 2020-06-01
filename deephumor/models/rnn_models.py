@@ -2,12 +2,14 @@
 import torch
 from torch import nn
 
+from deephumor.models.beam import BeamSearchHelper
+
 
 class LSTMDecoder(nn.Module):
     """LSTM-based decoder."""
 
-    def __init__(self, num_tokens, emb_dim=256, hidden_size=512, num_layers=3, dropout=0.1,
-                 embedding=None):
+    def __init__(self, num_tokens, emb_dim=256, hidden_size=512,
+                 num_layers=3, dropout=0.1, embedding=None):
 
         super(LSTMDecoder, self).__init__()
 
@@ -44,6 +46,28 @@ class LSTMDecoder(nn.Module):
 
     def generate(self, image_emb, caption=None, max_len=25,
                  temperature=1.0, beam_size=10, top_k=50, eos_index=3):
+        """Generates text tokens based on the image embedding.
+
+        Args:
+            image_emb (torch.Tensor): image embedding of shape `[1, emb_dim]`
+            caption (torch.Tensor, optional): beginning tokens of the caption of shape `[1, seq_len]`
+            max_len (int): maximum length of the caption
+            temperature (float): temperature for softmax over logits
+            beam_size (int): number of maintained branches at each step
+            top_k (int): number of the most probable tokens to consider during sampling
+            eos_index (int): index of the EOS (end-of-sequence) token
+
+        Returns:
+            torch.Tensor: generated caption tokens of shape `[1, min(output_len, max_len)]`
+        """
+
+        # beam search sampling helper
+        helper = BeamSearchHelper(
+            temperature=temperature, beam_size=beam_size,
+            top_k=top_k, eos_index=eos_index,
+            device=image_emb.device
+        )
+
         # process caption tokens if present
         if caption is None:
             inputs = image_emb
@@ -59,14 +83,12 @@ class LSTMDecoder(nn.Module):
         h, c = h.repeat((1, beam_size, 1)), c.repeat((1, beam_size, 1))
 
         # filter `top_k` values
-        filter_ind = logits < torch.topk(logits, top_k).values[0, -1]  # [..., -1, None]
-        filter_ind[:, 1] = True  # zero out unk token
-        logits[filter_ind] = float('-inf')
+        logits = helper.filter_top_k(logits)
 
         # compute probabilities and sample k values
-        p_next = torch.softmax(logits / temperature, dim=-1)
-        sample_ind = torch.multinomial(p_next, beam_size).transpose(0, 1)
-        sample_val = logits.log_softmax(-1).squeeze()[sample_ind]
+        sample_ind = helper.sample_k_indices(logits, k=beam_size)
+        sample_val = helper.filter_by_indices(logits, sample_ind).log_softmax(-1)
+        sample_ind, sample_val = sample_ind.T, sample_val.T
 
         # define total prediction sequences
         sample_seq = sample_ind.clone().detach()
@@ -76,16 +98,8 @@ class LSTMDecoder(nn.Module):
         # reusable parameters
         beam_copies = torch.tensor([beam_size] * beam_size).to(outputs.device)
 
-        # flags showing if sequence has ended
-        has_ended = (sample_ind == eos_index).view(-1)
-
-        # masks for filtering out predictions for ended/not_ended sequences
-        n_copies_has_ended = torch.tensor([[beam_size], [1]]).to(inputs.device)
-        mask_has_ended = torch.stack(
-            [torch.tensor([True] * beam_size),
-             torch.tensor([True] + [False] * (beam_size - 1))],
-            dim=0
-        ).to(inputs.device)
+        # update `has_ended` index
+        helper.has_ended = (sample_ind == eos_index).view(-1)
 
         for i in range(sample_seq.size(1), max_len):
             # predict the next time step
@@ -93,46 +107,16 @@ class LSTMDecoder(nn.Module):
             outputs, (h, c) = self.lstm(inputs, (h, c))
             logits = self.classifier(outputs[:, -1, :])
 
-            # filter `top_k` values
-            filter_ind = logits < torch.topk(logits, top_k, -1).values[:, -1].unsqueeze(-1)
-            filter_ind[:, 1] = True  # zero out unk token
-            logits[filter_ind] = float('-inf')
+            (prev_seqs, prev_vals), (new_ind, new_val) = helper.process_logits(
+                logits, sample_seq, sample_val
+            )
 
-            # sample `beam` sequences for each branch
-            p_next = torch.softmax(logits / temperature, dim=-1)
-            new_ind = torch.multinomial(p_next, beam_size)
-            new_val = torch.gather(logits, 1, new_ind).log_softmax(-1).flatten()
-            new_ind = new_ind.flatten()
-
-            # numbers of repeat_interleave copies (if ended, only a single copy)
-            n_copies = n_copies_has_ended[has_ended.long(), :].flatten()
-
-            # mask for unique rows
-            unique_rows = mask_has_ended[has_ended.long(), :].flatten()
-
-            # filter values
-            new_ind = new_ind[unique_rows]
-            new_val = new_val[unique_rows]
-
-            # check if the sequences already ended
-            # (no need to predict and evaluate new scores)
-            has_ended = torch.repeat_interleave(has_ended, n_copies, dim=0)
-            new_ind[has_ended], new_val[has_ended] = 0, 0.
-
-            # update `had_ended` based on new predictions
-            has_ended = has_ended | (new_ind == eos_index)
-
-            # repeat current sampled sequences
-            prev_seqs = torch.repeat_interleave(sample_seq.squeeze(0), n_copies, dim=0)
-            prev_vals = torch.repeat_interleave(sample_val.squeeze(0), n_copies, dim=0)
-
-            # create candidate sequencdes and compute their probabilites
+            # create candidate sequences and compute their probabilities
             cand_seq = torch.cat((prev_seqs, new_ind.unsqueeze(0).T), -1)
             cand_val = prev_vals.flatten() + new_val
-            p_next = torch.softmax(cand_val / temperature, dim=-1)
 
             # sample `beam` sequences
-            filter_ind = torch.multinomial(p_next, beam_size)
+            filter_ind = helper.sample_k_indices(cand_val, k=beam_size)
 
             # update total sequences and their scores
             sample_val = cand_val[filter_ind]
@@ -140,10 +124,10 @@ class LSTMDecoder(nn.Module):
             sample_ind = sample_seq[:, -1].unsqueeze(-1)
 
             # filter `has_ended` flags
-            has_ended = has_ended[filter_ind]
+            helper.has_ended = helper.has_ended[filter_ind]
 
             # check if every branch has ended
-            if torch.all(has_ended):
+            if helper.all_ended():
                 break
 
             # repeat hidden state `beam` times and filter by sampled indices
@@ -152,8 +136,7 @@ class LSTMDecoder(nn.Module):
             h, c = h[:, filter_ind, :], c[:, filter_ind, :]
 
         # sample output sequence
-        p = torch.softmax(sample_val / temperature, dim=-1)
-        ind = torch.multinomial(p, 1)
+        ind = helper.sample_k_indices(sample_val, k=1)
         output_seq = sample_seq[ind, :].squeeze()
 
         return output_seq
