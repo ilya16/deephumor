@@ -59,7 +59,7 @@ class LSTMDecoder(nn.Module):
         h, c = h.repeat((1, beam_size, 1)), c.repeat((1, beam_size, 1))
 
         # filter `top_k` values
-        filter_ind = logits < torch.topk(logits, top_k).values[0, -1]
+        filter_ind = logits < torch.topk(logits, top_k).values[0, -1]  # [..., -1, None]
         filter_ind[:, 1] = True  # zero out unk token
         logits[filter_ind] = float('-inf')
 
@@ -79,6 +79,14 @@ class LSTMDecoder(nn.Module):
         # flags showing if sequence has ended
         has_ended = (sample_ind == eos_index).view(-1)
 
+        # masks for filtering out predictions for ended/not_ended sequences
+        n_copies_has_ended = torch.tensor([[beam_size], [1]]).to(inputs.device)
+        mask_has_ended = torch.stack(
+            [torch.tensor([True] * beam_size),
+             torch.tensor([True] + [False] * (beam_size - 1))],
+            dim=0
+        ).to(inputs.device)
+
         for i in range(sample_seq.size(1), max_len):
             # predict the next time step
             inputs = self.embedding(sample_ind)
@@ -96,17 +104,27 @@ class LSTMDecoder(nn.Module):
             new_val = torch.gather(logits, 1, new_ind).log_softmax(-1).flatten()
             new_ind = new_ind.flatten()
 
-            # repeat current sampled sequences
-            prev_seqs = torch.repeat_interleave(sample_seq.squeeze(0), beam_copies, dim=0)
-            prev_vals = torch.repeat_interleave(sample_val.squeeze(0), beam_copies, dim=0)
+            # numbers of repeat_interleave copies (if ended, only a single copy)
+            n_copies = n_copies_has_ended[has_ended.long(), :].flatten()
+
+            # mask for unique rows
+            unique_rows = mask_has_ended[has_ended.long(), :].flatten()
+
+            # filter values
+            new_ind = new_ind[unique_rows]
+            new_val = new_val[unique_rows]
 
             # check if the sequences already ended
             # (no need to predict and evaluate new scores)
-            has_ended = torch.repeat_interleave(has_ended, beam_copies, dim=0)
+            has_ended = torch.repeat_interleave(has_ended, n_copies, dim=0)
             new_ind[has_ended], new_val[has_ended] = 0, 0.
 
             # update `had_ended` based on new predictions
             has_ended = has_ended | (new_ind == eos_index)
+
+            # repeat current sampled sequences
+            prev_seqs = torch.repeat_interleave(sample_seq.squeeze(0), n_copies, dim=0)
+            prev_vals = torch.repeat_interleave(sample_val.squeeze(0), n_copies, dim=0)
 
             # create candidate sequencdes and compute their probabilites
             cand_seq = torch.cat((prev_seqs, new_ind.unsqueeze(0).T), -1)
@@ -124,6 +142,7 @@ class LSTMDecoder(nn.Module):
             # filter `has_ended` flags
             has_ended = has_ended[filter_ind]
 
+            # check if every branch has ended
             if torch.all(has_ended):
                 break
 
