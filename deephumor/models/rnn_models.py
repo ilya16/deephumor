@@ -27,7 +27,7 @@ class LSTMDecoder(nn.Module):
         token_emb = self.embedding(captions)
 
         # image embedding + token embeddings
-        x = torch.cat((image_emb.unsqueeze(1), token_emb), 1)
+        x = torch.cat((image_emb.unsqueeze(1), token_emb), dim=1)
 
         if lengths is None:
             lengths = torch.tensor(x.size(1)).repeat(x.size(0))
@@ -41,3 +41,100 @@ class LSTMDecoder(nn.Module):
         outputs = self.classifier(outputs)
 
         return outputs
+
+    def generate(self, image_emb, caption=None, max_len=25,
+                 temperature=1.0, beam_size=10, top_k=50, eos_index=3):
+        # process caption tokens if present
+        if caption is None:
+            inputs = image_emb
+        else:
+            token_emb = self.embedding(caption)
+            inputs = torch.cat([image_emb, token_emb], dim=1)
+
+        # run LSTM over the inputs and predict the next token
+        outputs, (h, c) = self.lstm(inputs)
+        logits = self.classifier(outputs[:, -1, :])
+
+        # repeat hidden state `beam` times
+        h, c = h.repeat((1, beam_size, 1)), c.repeat((1, beam_size, 1))
+
+        # filter `top_k` values
+        filter_ind = logits < torch.topk(logits, top_k).values[0, -1]
+        filter_ind[:, 1] = True  # zero out unk token
+        logits[filter_ind] = float('-inf')
+
+        # compute probabilities and sample k values
+        p_next = torch.softmax(logits / temperature, dim=-1)
+        sample_ind = torch.multinomial(p_next, beam_size).transpose(0, 1)
+        sample_val = logits.log_softmax(-1).squeeze()[sample_ind]
+
+        # define total prediction sequences
+        sample_seq = sample_ind.clone().detach()
+        if caption is not None:
+            sample_seq = torch.cat([caption.repeat(beam_size, 1), sample_seq], dim=1)
+
+        # reusable parameters
+        beam_copies = torch.tensor([beam_size] * beam_size).to(outputs.device)
+
+        # flags showing if sequence has ended
+        has_ended = (sample_ind == eos_index).view(-1)
+
+        for i in range(sample_seq.size(1), max_len):
+            # predict the next time step
+            inputs = self.embedding(sample_ind)
+            outputs, (h, c) = self.lstm(inputs, (h, c))
+            logits = self.classifier(outputs[:, -1, :])
+
+            # filter `top_k` values
+            filter_ind = logits < torch.topk(logits, top_k, -1).values[:, -1].unsqueeze(-1)
+            filter_ind[:, 1] = True  # zero out unk token
+            logits[filter_ind] = float('-inf')
+
+            # sample `beam` sequences for each branch
+            p_next = torch.softmax(logits / temperature, dim=-1)
+            new_ind = torch.multinomial(p_next, beam_size)
+            new_val = torch.gather(logits, 1, new_ind).log_softmax(-1).flatten()
+            new_ind = new_ind.flatten()
+
+            # repeat current sampled sequences
+            prev_seqs = torch.repeat_interleave(sample_seq.squeeze(0), beam_copies, dim=0)
+            prev_vals = torch.repeat_interleave(sample_val.squeeze(0), beam_copies, dim=0)
+
+            # check if the sequences already ended
+            # (no need to predict and evaluate new scores)
+            has_ended = torch.repeat_interleave(has_ended, beam_copies, dim=0)
+            new_ind[has_ended], new_val[has_ended] = 0, 0.
+
+            # update `had_ended` based on new predictions
+            has_ended = has_ended | (new_ind == eos_index)
+
+            # create candidate sequencdes and compute their probabilites
+            cand_seq = torch.cat((prev_seqs, new_ind.unsqueeze(0).T), -1)
+            cand_val = prev_vals.flatten() + new_val
+            p_next = torch.softmax(cand_val / temperature, dim=-1)
+
+            # sample `beam` sequences
+            filter_ind = torch.multinomial(p_next, beam_size)
+
+            # update total sequences and their scores
+            sample_val = cand_val[filter_ind]
+            sample_seq = cand_seq[filter_ind]
+            sample_ind = sample_seq[:, -1].unsqueeze(-1)
+
+            # filter `has_ended` flags
+            has_ended = has_ended[filter_ind]
+
+            if torch.all(has_ended):
+                break
+
+            # repeat hidden state `beam` times and filter by sampled indices
+            h = torch.repeat_interleave(h, beam_copies, dim=1)
+            c = torch.repeat_interleave(c, beam_copies, dim=1)
+            h, c = h[:, filter_ind, :], c[:, filter_ind, :]
+
+        # sample output sequence
+        p = torch.softmax(sample_val / temperature, dim=-1)
+        ind = torch.multinomial(p, 1)
+        output_seq = sample_seq[ind, :].squeeze()
+
+        return output_seq

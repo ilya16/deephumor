@@ -7,7 +7,11 @@ from .transformers import (
     TransformerEncoder,
     TransformerDecoder,
 )
-from .caption_models import CaptioningTransformer
+from .caption_models import (
+    CaptioningLSTM,
+    CaptioningLSTMWithLabels,
+    CaptioningTransformer
+)
 
 __all__ = [
     'ImageEncoder',

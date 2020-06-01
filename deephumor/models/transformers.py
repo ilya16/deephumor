@@ -494,3 +494,9 @@ class TransformerDecoder(nn.Module):
         out = self.classifier(x)
 
         return out
+
+    def inference_step(self, inputs, hidden=None):
+        inputs = self.embedding(inputs)
+        outputs, hidden = self.lstm(inputs, hidden)
+        outputs = self.linear(outputs.squeeze(1))
+        return outputs, hidden

@@ -2,7 +2,7 @@
 
 from torch import nn
 
-from models import ImageEncoder, TransformerDecoder, LSTMDecoder, ImageLabelEncoder
+from deephumor.models import ImageEncoder, TransformerDecoder, LSTMDecoder, ImageLabelEncoder
 
 
 class CaptioningLSTM(nn.Module):
@@ -29,17 +29,19 @@ class CaptioningLSTM(nn.Module):
         )
 
     def forward(self, images, captions, lengths=None):
-        encoded = self.encoder(images)
-        out = self.decoder(encoded, captions, lengths)
+        emb = self.encoder(images)
+        out = self.decoder(emb, captions, lengths)
 
         return out
 
-    def inference(self, images, temperature=2, max_seg_length=25, k=10, most_probable=True):
-        encoded = self.encoder(images)
+    def generate(self, image, caption=None, max_len=25, temperature=1.0, beam_size=10, top_k=50):
+        # get image embedding
+        image_emb = self(image).unsqueeze(1)
 
-        sampled_ids = self.decoder.inference(
-            encoded, temperature=temperature, max_seg_length=max_seg_length,
-            k=k, most_probable=most_probable
+        sampled_ids = self.decoder.generate(
+            image_emb, caption=caption,
+            max_len=max_len, temperature=temperature,
+            beam_size=beam_size, top_k=top_k
         )
 
         return sampled_ids
@@ -72,8 +74,8 @@ class CaptioningLSTMWithLabels(nn.Module):
         )
 
     def forward(self, images, captions, lengths, labels):
-        encoded = self.encoder(images)
-        out = self.decoder(encoded, captions, lengths, labels)
+        emb = self.encoder(images=images, labels=labels)
+        out = self.decoder(emb, captions, lengths)
 
         return out
 
@@ -150,6 +152,5 @@ class CaptioningTransformer(nn.Module):
         """
         image_emb, image_spacial_emb = self.encoder(images)
         out = self.decoder(captions, enc_out=image_spacial_emb, image_emb=image_emb)
-        out = self.classifier(out)
 
         return out
