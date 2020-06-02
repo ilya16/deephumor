@@ -14,6 +14,7 @@ class LSTMDecoder(nn.Module):
         super(LSTMDecoder, self).__init__()
 
         self.num_tokens = num_tokens
+
         if embedding is not None:
             self.embedding = embedding
         else:
