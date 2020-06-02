@@ -80,7 +80,7 @@ class Trainer:
                 with torch.no_grad():
                     pp = perplexity(pred, captions, lengths, self.pad_index)
 
-                if self.writers is not None and is_train:
+                if self.writers is not None and phase in self.writers and is_train:
                     # make optimization step
                     optimizer.zero_grad()
                     loss.backward()
@@ -97,7 +97,7 @@ class Trainer:
                 epoch_pp += pp.item() * len(captions)
 
                 # dump batch metrics to tensorboard
-                if self.writers is not None and is_train:
+                if self.writers is not None and phase in self.writers and is_train:
                     self.writers[phase].add_scalar(f"train/batch_loss", loss.item(), iterations)
                     self.writers[phase].add_scalar(f"train/batch_perplexity", pp.item(), iterations)
 
@@ -105,7 +105,7 @@ class Trainer:
             epoch_pp = epoch_pp / len(dataloader.dataset)
 
             # dump epoch metrics to tensorboard
-            if self.writers is not None:
+            if self.writers is not None and phase in self.writers:
                 self.writers[phase].add_scalar(f"eval/loss", epoch_loss, epoch)
                 self.writers[phase].add_scalar(f"eval/perplexity", epoch_pp, epoch)
 
@@ -118,6 +118,9 @@ class Trainer:
         best_epoch, best_val_loss = 0, float('+inf')
         past_epochs = self.experiment_data['epochs']
         iterations = self.experiment_data['iterations']
+
+        if self.writers is None:
+            self._setup_writers()
 
         for epoch in range(past_epochs + 1, past_epochs + n_epochs + 1):
             self.experiment_data['epochs'] = epoch

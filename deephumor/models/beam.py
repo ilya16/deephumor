@@ -29,7 +29,7 @@ class BeamSearchHelper:
 
     def filter_top_k(self, logits):
         """Filters `top_k` logit values by zeroing out others."""
-        filter_ind = logits < torch.topk(logits, self.top_k).values[0, -1].unsqueeze(-1)
+        filter_ind = logits < torch.topk(logits, self.top_k, dim=-1).values[:, -1].unsqueeze(-1)
         filter_ind[:, self.unk_index] = True  # zero out unk token
         logits[filter_ind] = float('-inf')
         return logits
