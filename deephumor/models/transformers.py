@@ -430,7 +430,7 @@ class TransformerDecoder(nn.Module):
         self.classifier = nn.Linear(hid_dim, num_tokens)
 
         # custom weight initialization
-        self.init_weights()
+        # self.init_weights()
 
     def init_weights(self):
         for m in self.modules():

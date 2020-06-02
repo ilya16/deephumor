@@ -313,7 +313,7 @@ class CaptioningTransformer(nn.Module):
         ckpt = torch.load(ckpt_path, map_location='cpu')
         hp = ckpt['hp']
 
-        model =  CaptioningTransformer(
+        model = CaptioningTransformer(
             num_tokens=hp['num_tokens'],
             hid_dim=hp['hid_dim'],
             n_layers=hp['n_layers'],
