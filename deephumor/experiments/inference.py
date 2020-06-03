@@ -8,6 +8,30 @@ from deephumor.data import SPECIAL_TOKENS
 PUNCT_PATTERN = re.compile(r"( )([!#$%&\()*+,\-.\/:;<=>?@\\^{|}~]+)")
 
 
+def text_to_seq(text, vocab, tokenizer):
+    """Transforms string text into a tensor of tokens.
+
+    Args:
+        text (str): text input
+        vocab (Vocab): token vocabulary
+        tokenizer (Tokenizer): text tokenizer
+
+    Returns:
+        Torch.tensor: sequence of tokens of size (1, seq_len)
+    """
+
+    # tokenize
+    tokens = tokenizer.tokenize(text.lower())
+
+    # replace with `UNK`
+    tokens = [tok if tok in vocab.stoi else SPECIAL_TOKENS['UNK'] for tok in tokens]
+
+    # convert to ids
+    tokens = [vocab.stoi[tok] for tok in tokens]
+
+    return torch.tensor(tokens).unsqueeze(0)
+
+
 def seq_to_text(seq, vocab, delimiter=' '):
     """Transforms torch tensor of tokens into a text.
 
