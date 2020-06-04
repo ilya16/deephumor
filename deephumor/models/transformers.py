@@ -429,20 +429,12 @@ class TransformerDecoder(nn.Module):
         # output layer
         self.classifier = nn.Linear(hid_dim, num_tokens)
 
-        # custom weight initialization
-        # self.init_weights()
-
-    def init_weights(self):
-        for m in self.modules():
-            if hasattr(m, 'weight') and m.weight.dim() > 1:
-                nn.init.xavier_uniform_(m.weight.data)
-
-    def forward(self, x, enc_out, image_emb=None):
+    def forward(self, x, enc_out, start_emb=None):
         """
         Args:
             x (torch.Tensor): token sequences of shape `[bs, seq_len]`
             enc_out (torch.Tensor): encoder outputs of shape `[bs, seq_len, hid_dim]`
-            image_emb (torch.Tensor, optional): image embedding of shape `[bs, hid_dim]`
+            start_emb (torch.Tensor, optional): starting position embedding of shape `[bs, hid_dim]`
 
         Returns:
             torch.Tensor: decoded sequences of shape `[bs, seq_len, num_tokens]`
@@ -451,7 +443,7 @@ class TransformerDecoder(nn.Module):
         bs, dec_seq_len = x.shape[:2]
         enc_seq_len, hid_dim = enc_out.shape[1:3]
 
-        if image_emb is not None:
+        if start_emb is not None:
             dec_seq_len += 1
 
         # pad input and encoder outputs to the same seq_len
@@ -463,8 +455,8 @@ class TransformerDecoder(nn.Module):
         tok_emb = self.tok_embedding(x)
 
         # add image embedding:
-        if image_emb is not None:
-            tok_emb = torch.cat((image_emb.unsqueeze(1), tok_emb), 1)
+        if start_emb is not None:
+            tok_emb = torch.cat((start_emb.unsqueeze(1), tok_emb), 1)
 
         # scale token embeddings with self.scale parameter
         tok_emb = tok_emb / self.scale
@@ -478,7 +470,7 @@ class TransformerDecoder(nn.Module):
         emb = self.dropout(emb)
 
         # compute decoder input mask
-        if image_emb is not None:
+        if start_emb is not None:
             x = torch.cat([torch.ones(bs, 1).long().to(device), x], dim=1)
         pad_mask = get_pad_mask(x, x, pad_index=self.pad_index)
         autoregr_mask = get_autoregressive_mask(x)
@@ -497,12 +489,12 @@ class TransformerDecoder(nn.Module):
 
         return out
 
-    def generate(self, image_emb, enc_out, caption=None, max_len=25,
+    def generate(self, start_emb, enc_out, caption=None, max_len=25,
                  temperature=1.0, beam_size=10, top_k=50, eos_index=3):
         """Generates text tokens based on the image embedding.
 
         Args:
-            image_emb (torch.Tensor): image embedding of shape `[1, hid_dim]`
+            start_emb (torch.Tensor): starting position embedding of shape `[1, hid_dim]`
             enc_out (torch.Tensor): encoder outputs of shape `[bs, seq_len, hid_dim]`
             caption (torch.Tensor, optional): beginning tokens of the caption of shape `[1, seq_len]`
             max_len (int): maximum length of the caption
@@ -519,11 +511,11 @@ class TransformerDecoder(nn.Module):
         helper = BeamSearchHelper(
             temperature=temperature, beam_size=beam_size,
             top_k=top_k, eos_index=eos_index,
-            device=image_emb.device
+            device=start_emb.device
         )
 
         sample_seq = self.pad_index * torch.ones((1, max_len))
-        sample_seq = sample_seq.long().to(image_emb.device)
+        sample_seq = sample_seq.long().to(start_emb.device)
 
         # process caption tokens if present
         if caption is None:
@@ -533,7 +525,7 @@ class TransformerDecoder(nn.Module):
             sample_seq[:, :pos] = caption
 
         # run TransformerDecoder over the inputs and predict the next token
-        outputs = self(sample_seq, enc_out, image_emb)
+        outputs = self(sample_seq, enc_out, start_emb)
         logits = outputs[:, pos, :]
 
         # filter `top_k` values
@@ -550,11 +542,257 @@ class TransformerDecoder(nn.Module):
 
         # repeat `image_emb` and `enc_out`
         enc_out = enc_out.repeat(beam_size, 1, 1)
-        image_emb = image_emb.repeat(beam_size, 1)
+        start_emb = start_emb.repeat(beam_size, 1)
 
         for i in range(pos + 1, max_len + 1):
             # predict the next time step
-            outputs = self(sample_seq, enc_out, image_emb)
+            outputs = self(sample_seq, enc_out, start_emb)
+            logits = outputs[:, i, :]
+
+            (prev_seqs, prev_vals), (new_ind, new_val) = helper.process_logits(
+                logits, sample_seq, sample_val
+            )
+
+            # create candidate sequences and compute their probabilities
+            prev_seqs[:, i:i + 1] = new_ind.unsqueeze(0).T
+            cand_seq = prev_seqs
+            cand_val = prev_vals.flatten() + new_val
+
+            # sample `beam` sequences
+            filter_ind = helper.sample_k_indices(cand_val, k=beam_size)
+
+            # update total sequences and their scores
+            sample_val = cand_val[filter_ind]
+            sample_seq = cand_seq[filter_ind]
+
+            # filter `has_ended` flags
+            helper.has_ended = helper.has_ended[filter_ind]
+
+            # check if every branch has ended
+            if helper.all_ended():
+                break
+
+        # sample output sequence
+        ind = helper.sample_k_indices(sample_val, k=1)
+        output_seq = sample_seq[ind, :i].squeeze()
+
+        return output_seq
+
+
+class SelfAttentionDecoderLayer(nn.Module):
+    """Self-Attention Decoder Layer without Encoder-Attention."""
+
+    def __init__(self,
+                 hid_dim=512,
+                 n_heads=8,
+                 pf_dim=2048,
+                 dropout=0.):
+        """Initializes SelfAttentionDecoderLayer.
+
+        Args:
+            hid_dim (int): hidden dimension size
+            n_heads (int): number of attention heads
+            pf_dim (int): dimensions of the position-wise layer
+            dropout (float): attention and position-wise layer dropouts
+        """
+
+        super().__init__()
+
+        # masked self-attention + layer normalization
+        self.self_attn = MultiHeadAttentionLayer(hid_dim, n_heads, dropout)
+        self.self_attn_ln = nn.LayerNorm(hid_dim)
+
+        # position-wise feedforward layer + layer normalization
+        self.pf = PositionwiseFeedforwardLayer(hid_dim, pf_dim, dropout)
+        self.pf_ln = nn.LayerNorm(hid_dim)
+
+        # attention and position-wise feedforward layer dropouts
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x, input_mask=None):
+        """
+        Args:
+            x (torch.Tensor): input sequences of shape `[bs, seq_len, hid_dim]`
+            input_mask (torch.Tensor): masked self-attention + padding mask of shape `[bs, seq_len, seq_len]`
+
+        Returns:
+            torch.Tensor: processed sequences of shape `[bs, seq_len, hid_dim]`
+        """
+        ### block 1
+        # self-attention + dropout
+        attn_out = self.self_attn(x, x, x, mask=input_mask)
+        attn_out = self.dropout(attn_out)
+
+        # residual (attention) + attention layer norm
+        x = self.self_attn_ln(x + attn_out)
+
+        ### block 2
+        # positionwise feedforward + dropout
+        ff_out = self.dropout(self.pf(x))
+
+        # residual (positionwise feedforward) + positionwise feedforward layer norm
+        x = self.pf_ln(x + ff_out)
+
+        return x
+
+
+class SelfAttentionTransformerDecoder(nn.Module):
+    """Multi-layer Transformer Decoder without Encoder-Attention blocks.
+
+    Modifies the architecture of Vanilla Transformer Decoder from "Attention Is All You Need"
+    by taking as an input only a single encoder embedding vector without a sequence of encoded features.
+
+    Requires an embedding for the starting token position.
+
+    Outputs scores for tokens in the target sequence.
+
+    Modifications:
+        - No encoder outputs as inputs as in a classical Transformer Decoder.
+        - Learned positional embeddings instead of the sinusoidal positional encoding.
+        - Prepends image embedding vector to the token embeddings.
+    """
+
+    def __init__(self, num_tokens, hid_dim=512, n_layers=6, n_heads=8,
+                 pf_dim=2048, dropout=0., pad_index=None, max_len=128):
+        """Initializes TransformerImageDecoder.
+
+        Args:
+            num_tokens (int): number of tokens in input sequences
+            hid_dim (int): hidden dimension size
+            n_layers (int): number of Decoder layers
+            n_heads (int): number of attention heads
+            pf_dim (int): dimensions of the position-wise layer
+            dropout (float): attention and position-wise layer dropouts
+            pad_index (int): index used for padding values in input sequences
+            max_len (int): maximum lengths of input sequences.
+        """
+
+        super().__init__()
+
+        self.pad_index = pad_index  # if None, don't use masking
+
+        # embeddings
+        self.tok_embedding = nn.Embedding(num_tokens, hid_dim)
+        self.pos_embedding = nn.Embedding(max_len, hid_dim)
+        self.dropout = nn.Dropout(dropout)
+
+        # decoder layers (implemented below)
+        self.layers = nn.ModuleList([
+            SelfAttentionDecoderLayer(hid_dim, n_heads, pf_dim, dropout)
+            for _ in range(n_layers)
+        ])
+
+        # scale parameter
+        self.scale = torch.nn.Parameter(
+            torch.sqrt(torch.tensor(hid_dim, dtype=torch.float32)),
+            requires_grad=False
+        )
+
+        # output layer
+        self.classifier = nn.Linear(hid_dim, num_tokens)
+
+    def forward(self, x, start_emb):
+        """
+        Args:
+            x (torch.Tensor): token sequences of shape `[bs, seq_len]`
+            start_emb (torch.Tensor, optional): starting position embedding of shape `[bs, hid_dim]`
+
+        Returns:
+            torch.Tensor: decoded sequences of shape `[bs, seq_len, num_tokens]`
+        """
+        device = x.device
+
+        # get token embeddings
+        tok_emb = self.tok_embedding(x)
+
+        # add start position embedding:
+        if start_emb is not None:
+            tok_emb = torch.cat((start_emb.unsqueeze(1), tok_emb), 1)
+
+        # scale token embeddings with self.scale parameter
+        tok_emb = tok_emb / self.scale
+        bs, seq_len = tok_emb.shape[:2]
+
+        # get pos embeddings
+        indices = torch.arange(seq_len).repeat(bs, 1).to(device)
+        pos_emb = self.pos_embedding(indices)
+
+        # sum up token and positional embeddings and apply dropout
+        emb = tok_emb + pos_emb
+        emb = self.dropout(emb)
+
+        # compute decoder input mask
+        if start_emb is not None:
+            x = torch.cat([torch.ones(bs, 1).long().to(device), x], dim=1)
+        pad_mask = get_pad_mask(x, x, pad_index=self.pad_index)
+        autoregr_mask = get_autoregressive_mask(x)
+        input_mask = pad_mask | autoregr_mask
+
+        # apply encoder layers one by one; input shape is [bs, seq_len, hid dim]
+        x = emb
+        for layer in self.layers:
+            x = layer(x, input_mask=input_mask)
+
+        out = self.classifier(x)
+
+        return out
+
+    def generate(self, start_emb, caption=None, max_len=25,
+                 temperature=1.0, beam_size=10, top_k=50, eos_index=3):
+        """Generates text tokens based on the image embedding.
+
+        Args:
+            start_emb (torch.Tensor): starting position embedding of shape `[1, hid_dim]`
+            caption (torch.Tensor, optional): beginning tokens of the caption of shape `[1, seq_len]`
+            max_len (int): maximum length of the caption
+            temperature (float): temperature for softmax over logits
+            beam_size (int): number of maintained branches at each step
+            top_k (int): number of the most probable tokens to consider during sampling
+            eos_index (int): index of the EOS (end-of-sequence) token
+
+        Returns:
+            torch.Tensor: generated caption tokens of shape `[1, min(output_len, max_len)]`
+        """
+
+        # beam search sampling helper
+        helper = BeamSearchHelper(
+            temperature=temperature, beam_size=beam_size,
+            top_k=top_k, eos_index=eos_index,
+            device=start_emb.device
+        )
+
+        sample_seq = self.pad_index * torch.ones((1, max_len))
+        sample_seq = sample_seq.long().to(start_emb.device)
+
+        # process caption tokens if present
+        if caption is None:
+            pos = 0
+        else:
+            pos = caption.size(1)
+            sample_seq[:, :pos] = caption
+
+        # run TransformerDecoder over the inputs and predict the next token
+        outputs = self(sample_seq, start_emb)
+        logits = outputs[:, pos, :]
+
+        # filter `top_k` values
+        logits = helper.filter_top_k(logits)
+
+        # compute probabilities and sample k values
+        sample_ind = helper.sample_k_indices(logits, k=beam_size)
+        sample_val = helper.filter_by_indices(logits, sample_ind).log_softmax(-1)
+        sample_ind, sample_val = sample_ind.T, sample_val.T
+
+        # update total prediction sequences
+        sample_seq = sample_seq.repeat(beam_size, 1)
+        sample_seq[:, pos:pos + 1] = sample_ind
+
+        # repeat `image_emb` and `enc_out`
+        start_emb = start_emb.repeat(beam_size, 1)
+
+        for i in range(pos + 1, max_len + 1):
+            # predict the next time step
+            outputs = self(sample_seq, start_emb)
             logits = outputs[:, i, :]
 
             (prev_seqs, prev_vals), (new_ind, new_val) = helper.process_logits(

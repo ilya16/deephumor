@@ -10,6 +10,7 @@ from .transformers import (
 from .caption_models import (
     CaptioningLSTM,
     CaptioningLSTMWithLabels,
+    CaptioningTransformerBase,
     CaptioningTransformer
 )
 
@@ -19,5 +20,6 @@ __all__ = [
     'LSTMDecoder',
     'TransformerEncoder',
     'TransformerDecoder',
+    'CaptioningTransformerBase',
     'CaptioningTransformer',
 ]
