@@ -15,7 +15,7 @@ SPECIAL_TOKENS = {
 class Vocab:
     """Token vocabulary."""
 
-    def __init__(self, tokens, special_tokens=SPECIAL_TOKENS.values()):
+    def __init__(self, tokens, special_tokens=tuple(SPECIAL_TOKENS.values())):
         tokens = list(sorted(filter(lambda x: x not in special_tokens, tokens)))
         self.tokens = list(special_tokens) + tokens
         self.stoi = {self.tokens[idx]: idx for idx in range(len(self.tokens))}
@@ -30,14 +30,14 @@ class Vocab:
     def save(self, filepath):
         with open(filepath, 'w') as f:
             for token in self.tokens:
-                f.write(f'{token}\t{self.stoi[token]}\n')
+                f.write(f'{token}\n')
 
     @staticmethod
     def load(filepath):
         tokens = []
         with open(filepath, 'r') as f:
             for line in f:
-                token, _ = line.strip().split('\t')
+                token = line.strip('\n')
                 tokens.append(token)
         return Vocab(tokens)
 
