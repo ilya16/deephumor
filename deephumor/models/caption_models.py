@@ -327,7 +327,6 @@ class CaptioningTransformerBase(nn.Module):
         return model
 
 
-
 class CaptioningTransformer(nn.Module):
     """Transformer-based image captioning model.
 

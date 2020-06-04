@@ -91,8 +91,9 @@ class Trainer:
 
                     optimizer.step()
 
-                if phase == 'train':
+                if is_train:
                     iterations += 1
+
                 epoch_loss += loss.item() * len(captions)
                 epoch_pp += pp.item() * len(captions)
 
@@ -109,7 +110,8 @@ class Trainer:
                 self.writers[phase].add_scalar(f"eval/loss", epoch_loss, epoch)
                 self.writers[phase].add_scalar(f"eval/perplexity", epoch_pp, epoch)
 
-        self.experiment_data['iterations'] = iterations
+        if is_train:
+            self.experiment_data['iterations'] = iterations
 
         return epoch_loss, epoch_pp
 

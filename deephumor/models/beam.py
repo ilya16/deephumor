@@ -6,6 +6,8 @@ class BeamSearchHelper:
 
     def __init__(self, temperature=1.0, beam_size=10, top_k=50,
                  unk_index=1, eos_index=3, device='cuda'):
+        assert beam_size <= top_k, '`beam_size` should be less than `top_k`'
+
         self.temperature = temperature
         self.beam_size = beam_size
         self.top_k = top_k
@@ -96,8 +98,12 @@ class BeamSearchHelper:
         self.has_ended = self.has_ended | (new_ind == self.eos_index)
 
         # repeat current sampled sequences
-        prev_seqs = torch.repeat_interleave(sample_seq.squeeze(0), n_copies, dim=0)
-        prev_vals = torch.repeat_interleave(sample_val.squeeze(0), n_copies, dim=0)
+        prev_seqs = torch.repeat_interleave(sample_seq, n_copies, dim=0)
+        prev_vals = torch.repeat_interleave(sample_val, n_copies, dim=0)
+
+        if len(prev_seqs.size()) == 1:
+            prev_seqs = prev_seqs.unsqueeze(0)
+            prev_vals = prev_vals.unsqueeze(0)
 
         return (prev_seqs, prev_vals), (new_ind, new_val)
 
