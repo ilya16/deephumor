@@ -9,27 +9,27 @@ class ImageEncoder(nn.Module):
 
     Encodes an image into a `emb_size` vector.
 
-    If `spacial_features=True`, encoder also builds spacial features
+    If `spatial_features=True`, encoder also builds spatial features
     of the image based on the output of the last block of ResNet.
-    The shape of spacial features is `[k x k, emb_size]`
+    The shape of spatial features is `[k x k, emb_size]`
 
-    Note: `nn.Linear` layer is shared for global and spacial encodings.
+    Note: `nn.Linear` layer is shared for global and spatial encodings.
 
     References:
         [1]: "Deep Residual Learning for Image Recognition", https://arxiv.org/abs/1512.03385
     """
 
-    def __init__(self, emb_dim=256, dropout=0.2, spacial_features=False):
+    def __init__(self, emb_dim=256, dropout=0.2, spatial_features=False):
         """Initializes ImageEncoder.
 
         Args:
             emb_dim (int): dimensions of the output embedding
             dropout (float): dropout for the encoded features
-            spacial_features (bool): whether compute spacial features or not
+            spatial_features (bool): whether compute spatial features or not
         """
         super().__init__()
 
-        self.spacial_features = spacial_features
+        self.spatial_features = spatial_features
 
         resnet = models.resnet50(pretrained=True)
         for p in resnet.parameters():
@@ -49,8 +49,8 @@ class ImageEncoder(nn.Module):
             images (torch.Tensor): input images of shape `[bs, width, height]`
 
         Returns:
-            torch.Tensor: global image embedding of shape `[bs, emb_dim]` if `self.spacial_features=False`,
-                (`self.spacial_features=True`) spacial image embeddings of shape `[bs, k_w x k_h, emb_dim]`
+            torch.Tensor: global image embedding of shape `[bs, emb_dim]` if `self.spatial_features=False`,
+                (`self.spatial_features=True`) spatial image embeddings of shape `[bs, k_w x k_h, emb_dim]`
         """
         # ResNet features
         features = self.resnet(images)
@@ -60,12 +60,12 @@ class ImageEncoder(nn.Module):
         x = self.avgpool(features).reshape(bs, -1)
         emb = self.dropout(self.bn(self.linear(x)))
 
-        # spacial features
-        if self.spacial_features:
+        # spatial features
+        if self.spatial_features:
             x = features.reshape(bs, dim, -1)
             x = x.transpose(2, 1)  # (B, D, N) -> (B, N, D)
-            spacial_emb = self.dropout(self.linear(x))
-            return emb, spacial_emb
+            spatial_emb = self.dropout(self.linear(x))
+            return emb, spatial_emb
 
         return emb
 

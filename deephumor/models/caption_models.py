@@ -198,7 +198,7 @@ class CaptioningLSTMWithLabels(nn.Module):
 class CaptioningTransformerBase(nn.Module):
     """Simple Transformer-based image captioning model without Encoder-Attention Decoder blocks.
 
-    - ResNet-based [1] ImageEncoder for getting global and spacial image embeddings.
+    - ResNet-based [1] ImageEncoder for getting global and spatial image embeddings.
     - Vanilla Transformer Decoder without Encoder-Attention [2].
 
     Global image embedding is prepended to the token embedding of decoder input sequences.
@@ -229,7 +229,7 @@ class CaptioningTransformerBase(nn.Module):
         self.encoder = ImageEncoder(
             emb_dim=hid_dim,
             dropout=enc_dropout,
-            spacial_features=False
+            spatial_features=False
         )
 
         self.decoder = SelfAttentionTransformerDecoder(
@@ -330,11 +330,11 @@ class CaptioningTransformerBase(nn.Module):
 class CaptioningTransformer(nn.Module):
     """Transformer-based image captioning model.
 
-    - ResNet-based [1] ImageEncoder for getting global and spacial image embeddings.
+    - ResNet-based [1] ImageEncoder for getting global and spatial image embeddings.
     - Vanilla Transformer Decoder [2].
 
     Global image embedding is prepended to the token embedding of decoder input sequences.
-    Spacial image embeddings are used as encoder outputs in the encoder-attention block
+    Spatial image embeddings are used as encoder outputs in the encoder-attention block
     of the Decoder layers.
 
     References:
@@ -363,7 +363,7 @@ class CaptioningTransformer(nn.Module):
         self.encoder = ImageEncoder(
             emb_dim=hid_dim,
             dropout=enc_dropout,
-            spacial_features=True
+            spatial_features=True
         )
 
         self.decoder = TransformerDecoder(
@@ -400,8 +400,8 @@ class CaptioningTransformer(nn.Module):
         Returns:
             torch.Tensor: decoded scores for caption sequence tokens of shape `[bs, seq_len, num_tokens]`
         """
-        image_emb, image_spacial_emb = self.encoder(images)
-        out = self.decoder(captions, enc_out=image_spacial_emb, start_emb=image_emb)
+        image_emb, image_spatial_emb = self.encoder(images)
+        out = self.decoder(captions, enc_out=image_spatial_emb, start_emb=image_emb)
 
         return out
 
@@ -423,10 +423,10 @@ class CaptioningTransformer(nn.Module):
         """
 
         # get image embeddings
-        image_emb, image_spacial_emb = self.encoder(image)
+        image_emb, image_spatial_emb = self.encoder(image)
 
         sampled_ids = self.decoder.generate(
-            image_emb, image_spacial_emb, caption=caption,
+            image_emb, image_spatial_emb, caption=caption,
             max_len=max_len, temperature=temperature,
             beam_size=beam_size, top_k=top_k, eos_index=eos_index
         )
