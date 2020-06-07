@@ -14,6 +14,8 @@ The repository contains the code for multiple meme generation models:
 - Base Captioning Transformer with Global image embedding
 - Captioning Transformer LSTM with Spatial image features
 
+Model inllustrations are given in the [section below](#models)
+
 Except for the models, we collect and release a large-scale dataset of 900,000 meme templates crawled from [MemeGenerator](https://memegenerator.net) website.
 The dataset is upload to [Google Drive](https://drive.google.com/file/d/1j6YG3skamxA1-mdogC1kRjugFuOkHt_A). Description of the dataset is given in the corresponding [section](#dataset).
 
@@ -60,3 +62,19 @@ Then, split the data into `train/val/test` using:
 ```shell script
 python split_data.py --data-dir ../memes --splits 2500 250 250
 ```
+
+## Models
+
+### Captioning LSTM
+
+![Captioning LSTM](/assets/lstm.png)
+
+### Captioning LSTM with labels
+![Captioning LSTM](/assets/lstm-labels.png)
+
+### Captioning Base Transformer
+
+![Captioning LSTM](/assets/base-transformer.png)
+
+### Captioning Transformer
+![Captioning LSTM](/assets/transformer.png)
