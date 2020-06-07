@@ -70,11 +70,11 @@ python split_data.py --data-dir ../memes --splits 2500 250 250
 ![Captioning LSTM](/assets/lstm.png)
 
 ### Captioning LSTM with labels
-![Captioning LSTM](/assets/lstm-labels.png)
+![Captioning LSTM with labels](/assets/lstm-labels.png)
 
 ### Captioning Base Transformer
 
-![Captioning LSTM](/assets/base-transformer.png)
+![Captioning Base Transformer](/assets/base-transformer.png)
 
 ### Captioning Transformer
-![Captioning LSTM](/assets/transformer.png)
+![Captioning Transformer](/assets/transformer.png)
