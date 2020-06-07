@@ -5,6 +5,8 @@
 >
 > [Video with the presentation](https://youtu.be/gf-HcRwsSfI)  
 
+<img alt="Deep Learning meme" src="/assets/deep-learning-meme.jpg" width="480">
+
 ## Description
 
 The repository contains the code for multiple meme generation models:
@@ -66,15 +68,13 @@ python split_data.py --data-dir ../memes --splits 2500 250 250
 ## Models
 
 ### Captioning LSTM
-
-![Captioning LSTM](/assets/lstm.png)
+<img alt="Captioning LSTM" src="/assets/lstm.png" width="480">
 
 ### Captioning LSTM with labels
-![Captioning LSTM with labels](/assets/lstm-labels.png)
+<img alt="Captioning LSTM with labels" src="/assets/lstm-labels.png" width="480">
 
 ### Captioning Base Transformer
-
-![Captioning Base Transformer](/assets/base-transformer.png)
+<img alt="Captioning Base Transformer" src="/assets/base-transformer.png" width="480">
 
 ### Captioning Transformer
-![Captioning Transformer](/assets/transformer.png)
+<img alt="Captioning Transformer" src="/assets/transformer.png" width="480">
