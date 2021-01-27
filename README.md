@@ -1,7 +1,7 @@
 # DeepHumor: Image-based Meme Generation using Deep Learning
 
 > Final Project in "Deep Learning" course in Skotech, 2020.  
-> Authors: [Ilya Borovik](https://github.com/ilya16), [Bulat Khabibullin](https://github.com/MrWag2), [Vladislav Kniazev](https://github.com/Vladoskn), [Oluwafemi Olaleke](https://github.com/6861) and [Zakhar Pichugin](https://github.com/zakharpichugin)
+> Authors: [Ilya Borovik](https://github.com/ilya16), [Bulat Khabibullin](https://github.com/Bulichek), [Vladislav Kniazev](https://github.com/Vladoskn), [Oluwafemi Olaleke](https://github.com/6861) and [Zakhar Pichugin](https://github.com/zakharpichugin)
 >
 > [Video with the presentation](https://youtu.be/gf-HcRwsSfI)  
 
