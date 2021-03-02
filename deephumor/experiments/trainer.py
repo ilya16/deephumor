@@ -1,9 +1,12 @@
 import os
+import sys
 from datetime import datetime
 from time import time
 
 import torch
+from torch.cuda import amp
 from torch.utils.tensorboard import SummaryWriter
+from tqdm import tqdm
 
 from deephumor.experiments.metrics import perplexity
 
@@ -11,16 +14,15 @@ from deephumor.experiments.metrics import perplexity
 class Trainer:
     """An ultimate class for running the models."""
     def __init__(self, experiment_title, log_dir='./logs', text_labels=False,
-                 phases=('train', 'val'), clip_norm=3., log_grad_norm=False,
-                 unk_index=0, pad_index=0, device='cuda'):
+                 phases=('train', 'val'), grad_clip_norm=1., fp16_run=True,
+                 pad_index=0, device='cuda'):
         self.experiment_data = self._setup_experiment(experiment_title, log_dir)
 
         self.text_labels = text_labels
         self.phases = phases
-        self.clip_norm = clip_norm
-        self.log_grad_norm = log_grad_norm
+        self.grad_clip_norm = grad_clip_norm
+        self.fp16_run = fp16_run
 
-        self.unk_index = unk_index
         self.pad_index = pad_index
         self.device = device
 
@@ -30,7 +32,7 @@ class Trainer:
     def _setup_experiment(title, log_dir='./logs'):
         experiment_name = "{}@{}".format(title, datetime.now().strftime("%d.%m.%Y-%H:%M:%S"))
         experiment_dir = os.path.join(log_dir, experiment_name)
-        best_model_path = f"{title}.best.pth"
+        best_model_path = os.path.join(experiment_dir, f"{title}.best.pth")
 
         experiment_data = {
             'model_name': title,
@@ -49,7 +51,7 @@ class Trainer:
             for phase in self.phases
         }
 
-    def run_epoch(self, model, dataloader, optimizer, criterion, phase='train'):
+    def run_epoch(self, model, dataloader, optimizer, criterion, scaler, phase='train'):
         is_train = (phase == 'train')
         model.train() if is_train else model.eval()
 
@@ -58,7 +60,7 @@ class Trainer:
         epoch_loss, epoch_pp = 0., 0.
 
         with torch.set_grad_enabled(is_train):
-            for batch in dataloader:
+            for batch in tqdm(dataloader, position=0, leave=False, file=sys.stdout):
                 # unpack batch
                 labels, captions, images = batch
                 bs, max_len = captions.size()
@@ -66,33 +68,36 @@ class Trainer:
                 captions, images = captions.to(self.device), images.to(self.device)
                 lengths = captions.size(1) - (captions == self.pad_index).sum(dim=1)
 
-                if self.text_labels:
-                    labels = labels.to(self.device)
-                    pred = model(images, captions[:, :-1], lengths, labels)
-                else:
-                    pred = model(images, captions[:, :-1], lengths)
+                with amp.autocast(enabled=self.fp16_run):
+                    if self.text_labels:
+                        labels = labels.to(self.device)
+                        pred = model(images, captions[:, :-1], lengths, labels)
+                    else:
+                        pred = model(images, captions[:, :-1], lengths)
 
-                pred = pred[:, :max_len, :]
+                    pred = pred[:, :max_len, :]
 
-                mask = captions != self.pad_index
-                loss = criterion(pred[mask], captions[mask])
+                    mask = captions != self.pad_index
+                    loss = criterion(pred[mask], captions[mask])
 
                 with torch.no_grad():
                     pp = perplexity(pred, captions, lengths, self.pad_index)
 
+                if is_train:
+                    iterations += 1
+
                 if self.writers is not None and phase in self.writers and is_train:
                     # make optimization step
                     optimizer.zero_grad()
-                    loss.backward()
+                    scaler.scale(loss).backward()
 
-                    if self.log_grad_norm:
-                        self.writers[phase].add_scalar(f"train/grad_norm", gradient_norm(model).item(), iterations)
-                        torch.nn.utils.clip_grad_norm_(model.parameters(), self.clip_norm)
+                    if self.grad_clip_norm > 0.:
+                        scaler.unscale_(optimizer)
+                        grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), self.grad_clip_norm)
+                        self.writers[phase].add_scalar(f"train/grad_norm", grad_norm, iterations)
 
-                    optimizer.step()
-
-                if is_train:
-                    iterations += 1
+                    scaler.step(optimizer)
+                    scaler.update()
 
                 epoch_loss += loss.item() * len(captions)
                 epoch_pp += pp.item() * len(captions)
@@ -121,6 +126,8 @@ class Trainer:
         past_epochs = self.experiment_data['epochs']
         iterations = self.experiment_data['iterations']
 
+        scaler = amp.GradScaler(enabled=self.fp16_run)
+
         if self.writers is None:
             self._setup_writers()
 
@@ -131,9 +138,8 @@ class Trainer:
             st = time()
             for phase in self.phases:
                 epoch_loss, epoch_pp = self.run_epoch(
-                    model, dataloaders[phase], optimizer, criterion, phase=phase
+                    model, dataloaders[phase], optimizer, criterion, scaler=scaler, phase=phase
                 )
-
                 print(f'  {phase:5s} loss: {epoch_loss:.5f}, perplexity: {epoch_pp:.3f}')
 
                 if phase == 'val' and epoch_loss < best_val_loss:
@@ -159,12 +165,3 @@ class Trainer:
         for writer in self.writers.values():
             writer.close()
         self.writers = None
-
-
-def gradient_norm(model, norm_type=2.):
-    total_norm = torch.norm(
-        torch.stack([torch.norm(p.grad.detach(), norm_type)
-                     for p in model.parameters() if p.grad is not None]),
-        norm_type
-    )
-    return total_norm
