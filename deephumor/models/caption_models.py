@@ -3,7 +3,7 @@ import torch
 from torch import nn
 
 from . import ImageEncoder, TransformerDecoder, LSTMDecoder, ImageLabelEncoder
-from .transformers import SelfAttentionTransformerDecoder
+from .transformers import get_mask_from_lengths
 
 
 class CaptioningLSTM(nn.Module):
@@ -209,7 +209,7 @@ class CaptioningTransformerBase(nn.Module):
     """
 
     def __init__(self, num_tokens, hid_dim=512, n_layers=6, n_heads=8, pf_dim=2048,
-                 enc_dropout=0.3, dec_dropout=0.1, pad_index=0, max_len=128):
+                 enc_dropout=0.3, dec_dropout=0.1, max_len=128):
         """Initializes CaptioningTransformer.
 
         Args:
@@ -220,7 +220,6 @@ class CaptioningTransformerBase(nn.Module):
             pf_dim (int): dimensions of the position-wise layer
             enc_dropout (float): image embeddings dropout
             dec_dropout (float): attention and position-wise layer dropouts of the Decoder
-            pad_index (int): index used for padding values in input sequences
             max_len (int): maximum lengths of input sequences.
         """
 
@@ -232,15 +231,15 @@ class CaptioningTransformerBase(nn.Module):
             spatial_features=False
         )
 
-        self.decoder = SelfAttentionTransformerDecoder(
+        self.decoder = TransformerDecoder(
             num_tokens=num_tokens,
             hid_dim=hid_dim,
             n_layers=n_layers,
             n_heads=n_heads,
             pf_dim=pf_dim,
             dropout=dec_dropout,
-            pad_index=pad_index,
-            max_len=max_len
+            max_len=max_len,
+            receives_context=False
         )
 
         # hyperparameters dictionary
@@ -252,7 +251,6 @@ class CaptioningTransformerBase(nn.Module):
             'pf_dim': pf_dim,
             'enc_dropout': enc_dropout,
             'dec_dropout': dec_dropout,
-            'pad_index': pad_index,
             'max_len': max_len
         }
 
@@ -267,7 +265,8 @@ class CaptioningTransformerBase(nn.Module):
             torch.Tensor: decoded scores for caption sequence tokens of shape `[bs, seq_len, num_tokens]`
         """
         image_emb = self.encoder(images)
-        out = self.decoder(captions, start_emb=image_emb)
+        input_mask = get_mask_from_lengths(lengths) if lengths is not None else None
+        out = self.decoder(captions, input_mask=input_mask, start_emb=image_emb)
 
         return out
 
@@ -320,7 +319,6 @@ class CaptioningTransformerBase(nn.Module):
             pf_dim=hp['pf_dim'],
             enc_dropout=hp['enc_dropout'],
             dec_dropout=hp['dec_dropout'],
-            pad_index=hp['pad_index'],
             max_len=hp['max_len']
         )
         model.load_state_dict(ckpt['model'])
@@ -343,7 +341,7 @@ class CaptioningTransformer(nn.Module):
     """
 
     def __init__(self, num_tokens, hid_dim=512, n_layers=6, n_heads=8, pf_dim=2048,
-                 enc_dropout=0.3, dec_dropout=0.1, pad_index=0, max_len=128):
+                 enc_dropout=0.3, dec_dropout=0.1, max_len=128):
         """Initializes CaptioningTransformer.
 
         Args:
@@ -354,7 +352,6 @@ class CaptioningTransformer(nn.Module):
             pf_dim (int): dimensions of the position-wise layer
             enc_dropout (float): image embeddings dropout
             dec_dropout (float): attention and position-wise layer dropouts of the Decoder
-            pad_index (int): index used for padding values in input sequences
             max_len (int): maximum lengths of input sequences.
         """
 
@@ -373,7 +370,6 @@ class CaptioningTransformer(nn.Module):
             n_heads=n_heads,
             pf_dim=pf_dim,
             dropout=dec_dropout,
-            pad_index=pad_index,
             max_len=max_len
         )
 
@@ -386,7 +382,6 @@ class CaptioningTransformer(nn.Module):
             'pf_dim': pf_dim,
             'enc_dropout': enc_dropout,
             'dec_dropout': dec_dropout,
-            'pad_index': pad_index,
             'max_len': max_len
         }
 
@@ -401,7 +396,8 @@ class CaptioningTransformer(nn.Module):
             torch.Tensor: decoded scores for caption sequence tokens of shape `[bs, seq_len, num_tokens]`
         """
         image_emb, image_spatial_emb = self.encoder(images)
-        out = self.decoder(captions, enc_out=image_spatial_emb, start_emb=image_emb)
+        input_mask = get_mask_from_lengths(lengths) if lengths is not None else None
+        out = self.decoder(captions, input_mask=input_mask, context=image_spatial_emb, start_emb=image_emb)
 
         return out
 
@@ -426,7 +422,7 @@ class CaptioningTransformer(nn.Module):
         image_emb, image_spatial_emb = self.encoder(image)
 
         sampled_ids = self.decoder.generate(
-            image_emb, image_spatial_emb, caption=caption,
+            image_emb, caption=caption, context=image_spatial_emb,
             max_len=max_len, temperature=temperature,
             beam_size=beam_size, top_k=top_k, eos_index=eos_index
         )
@@ -454,7 +450,6 @@ class CaptioningTransformer(nn.Module):
             pf_dim=hp['pf_dim'],
             enc_dropout=hp['enc_dropout'],
             dec_dropout=hp['dec_dropout'],
-            pad_index=hp['pad_index'],
             max_len=hp['max_len']
         )
         model.load_state_dict(ckpt['model'])
