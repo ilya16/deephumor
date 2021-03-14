@@ -19,15 +19,19 @@ class BeamSearchHelper:
     def _build_has_ended_variables(self):
         """Returns flags and masks for monitoring if generation has ended."""
         # flags showing if sequence has ended
-        self.has_ended = torch.tensor([False] * self.beam_size).to(self.device)
+        self.has_ended = torch.zeros(self.beam_size, dtype=torch.bool, device=self.device)
 
         # masks for filtering out predictions for ended/not_ended sequences
-        self._n_copies_has_ended = torch.tensor([[self.beam_size], [1]]).to(self.device)
-        self._mask_has_ended = torch.stack(
-            [torch.tensor([True] * self.beam_size),
-             torch.tensor([True] + [False] * (self.beam_size - 1))],
+        self._n_copies_has_ended = torch.tensor([[self.beam_size], [1]], device=self.device)
+
+        self._mask_has_ended = torch.stack([
+            torch.ones(self.beam_size, dtype=torch.bool, device=self.device),
+            torch.cat([
+                torch.ones(1, dtype=torch.bool, device=self.device),
+                torch.zeros(self.beam_size - 1, dtype=torch.bool, device=self.device),
+            ])],
             dim=0
-        ).to(self.device)
+        )
 
     def filter_top_k(self, logits):
         """Filters `top_k` logit values by zeroing out others."""

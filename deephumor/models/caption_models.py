@@ -3,7 +3,7 @@ import torch
 from torch import nn
 
 from . import ImageEncoder, TransformerDecoder, LSTMDecoder, ImageLabelEncoder
-from .transformers import get_mask_from_lengths
+from .utils import get_mask_from_lengths
 
 
 class CaptioningLSTM(nn.Module):

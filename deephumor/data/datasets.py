@@ -88,8 +88,8 @@ class MemeDataset(Dataset):
         img = self.images[label]
 
         # label and caption tokens
-        label = torch.tensor(self._preprocess_text(label)).long()
-        caption = torch.tensor(self._preprocess_text(caption)).long()
+        label = torch.tensor(self._preprocess_text(label), dtype=torch.long)
+        caption = torch.tensor(self._preprocess_text(caption), dtype=torch.long)
 
         # image transform
         if not self.preload_images:

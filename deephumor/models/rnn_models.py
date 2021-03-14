@@ -2,7 +2,7 @@
 import torch
 from torch import nn
 
-from deephumor.models.beam import BeamSearchHelper
+from .beam import BeamSearchHelper
 
 
 class LSTMDecoder(nn.Module):
@@ -97,7 +97,7 @@ class LSTMDecoder(nn.Module):
             sample_seq = torch.cat([caption.repeat(beam_size, 1), sample_seq], dim=1)
 
         # reusable parameters
-        beam_copies = torch.tensor([beam_size] * beam_size).to(outputs.device)
+        beam_copies = torch.tensor([beam_size] * beam_size, device=outputs.device)
 
         # update `has_ended` index
         helper.has_ended = (sample_ind == eos_index).view(-1)

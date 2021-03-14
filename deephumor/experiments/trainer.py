@@ -1,29 +1,27 @@
 import os
 import sys
+import time
 from datetime import datetime
-from time import time
 
 import torch
-from torch.cuda import amp
+import torch.cuda.amp as amp
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
-from deephumor.experiments.metrics import perplexity
+from .metrics import perplexity
+from deephumor.models.utils import get_mask_from_lengths
 
 
 class Trainer:
-    """An ultimate class for running the models."""
+    """An ultimate class for training the models."""
     def __init__(self, experiment_title, log_dir='./logs', text_labels=False,
-                 phases=('train', 'val'), grad_clip_norm=1., fp16_run=True,
-                 pad_index=0, device='cuda'):
+                 phases=('train', 'val'), grad_clip_norm=1., fp16_run=True, device='cuda'):
         self.experiment_data = self._setup_experiment(experiment_title, log_dir)
 
         self.text_labels = text_labels
         self.phases = phases
         self.grad_clip_norm = grad_clip_norm
         self.fp16_run = fp16_run
-
-        self.pad_index = pad_index
         self.device = device
 
         self.writers = self._setup_writers()
@@ -51,37 +49,38 @@ class Trainer:
             for phase in self.phases
         }
 
-    def run_epoch(self, model, dataloader, optimizer, criterion, scaler, phase='train'):
+    def _to_device(self, tensor):
+        return tensor.to(self.device, non_blocking=True)
+
+    def run_epoch(self, model, dataloader, optimizer, criterion, scaler=None, phase='train'):
         is_train = (phase == 'train')
         model.train() if is_train else model.eval()
 
         epoch = self.experiment_data['epochs']
         iterations = self.experiment_data['iterations']
-        epoch_loss, epoch_pp = 0., 0.
+        num_samples, epoch_loss, epoch_pp = 0, 0., 0.
 
         with torch.set_grad_enabled(is_train):
-            for batch in tqdm(dataloader, position=0, leave=False, file=sys.stdout):
+            epoch_pbar = tqdm(dataloader, position=0, leave=False, file=sys.stdout)
+            for batch in epoch_pbar:
                 # unpack batch
-                labels, captions, images = batch
-                bs, max_len = captions.size()
+                labels, captions, images, lengths = batch
+                batch_size = captions.size(0)
 
-                captions, images = captions.to(self.device), images.to(self.device)
-                lengths = captions.size(1) - (captions == self.pad_index).sum(dim=1)
+                captions, images, lengths = map(self._to_device, (captions, images, lengths))
 
                 with amp.autocast(enabled=self.fp16_run):
                     if self.text_labels:
-                        labels = labels.to(self.device)
+                        labels = self._to_device(labels)
                         pred = model(images, captions[:, :-1], lengths, labels)
                     else:
                         pred = model(images, captions[:, :-1], lengths)
 
-                    pred = pred[:, :max_len, :]
-
-                    mask = captions != self.pad_index
+                    mask = get_mask_from_lengths(lengths)
                     loss = criterion(pred[mask], captions[mask])
 
                 with torch.no_grad():
-                    pp = perplexity(pred, captions, lengths, self.pad_index)
+                    pp = perplexity(pred, captions, lengths)
 
                 if is_train:
                     iterations += 1
@@ -89,24 +88,38 @@ class Trainer:
                 if self.writers is not None and phase in self.writers and is_train:
                     # make optimization step
                     optimizer.zero_grad()
-                    scaler.scale(loss).backward()
+
+                    if scaler is None:
+                        loss.backward()
+                    else:
+                        scaler.scale(loss).backward()
 
                     if self.grad_clip_norm > 0.:
-                        scaler.unscale_(optimizer)
+                        if scaler is not None:
+                            scaler.unscale_(optimizer)
                         grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), self.grad_clip_norm)
                         self.writers[phase].add_scalar(f"train/grad_norm", grad_norm, iterations)
 
-                    scaler.step(optimizer)
-                    scaler.update()
+                    if scaler is None:
+                        optimizer.step()
+                    else:
+                        scaler.step(optimizer)
+                        scaler.update()
 
-                epoch_loss += loss.item() * len(captions)
-                epoch_pp += pp.item() * len(captions)
+                loss, pp = loss.item(), pp.item()
+                epoch_loss += loss * batch_size
+                epoch_pp += pp * batch_size
+                num_samples += batch_size
 
                 # dump batch metrics to tensorboard
                 if self.writers is not None and phase in self.writers and is_train:
-                    self.writers[phase].add_scalar(f"train/batch_loss", loss.item(), iterations)
-                    self.writers[phase].add_scalar(f"train/batch_perplexity", pp.item(), iterations)
+                    self.writers[phase].add_scalar(f"train/batch_loss", loss, iterations)
+                    self.writers[phase].add_scalar(f"train/batch_perplexity", pp, iterations)
 
+                epoch_pbar.set_description(f"loss: {epoch_loss / num_samples:.5f}, "
+                                           f"pp: {epoch_pp / num_samples:.5f}")
+
+            epoch_pbar.close()
             epoch_loss = epoch_loss / len(dataloader.dataset)
             epoch_pp = epoch_pp / len(dataloader.dataset)
 
@@ -124,7 +137,6 @@ class Trainer:
 
         best_epoch, best_val_loss = 0, float('+inf')
         past_epochs = self.experiment_data['epochs']
-        iterations = self.experiment_data['iterations']
 
         scaler = amp.GradScaler(enabled=self.fp16_run)
 
@@ -135,7 +147,7 @@ class Trainer:
             self.experiment_data['epochs'] = epoch
             print(f'Epoch {epoch:02d}/{past_epochs + n_epochs:02d}')
 
-            st = time()
+            st = time.perf_counter()
             for phase in self.phases:
                 epoch_loss, epoch_pp = self.run_epoch(
                     model, dataloaders[phase], optimizer, criterion, scaler=scaler, phase=phase
@@ -151,13 +163,10 @@ class Trainer:
                 if phase == 'train' and scheduler is not None:
                     scheduler.step()
 
-            et = time() - st
+            et = time.perf_counter() - st
             print(f'  epoch time: {et:.2f}s')
 
         print(f'Best val_loss: {best_val_loss} (epoch: {best_epoch})')
-
-        self.experiment_data['epochs'] = epoch
-        self.experiment_data['iterations'] = iterations
 
         return self.experiment_data
 
