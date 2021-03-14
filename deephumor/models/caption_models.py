@@ -1,4 +1,7 @@
 """Image captioning models."""
+from abc import abstractmethod
+from inspect import getfullargspec
+
 import torch
 from torch import nn
 
@@ -6,7 +9,55 @@ from . import ImageEncoder, TransformerDecoder, LSTMDecoder, ImageLabelEncoder
 from .utils import get_mask_from_lengths
 
 
-class CaptioningLSTM(nn.Module):
+class _CaptioningModel(nn.Module):
+    """Base class for Captioning models."""
+    def __init__(self):
+        super().__init__()
+
+        self.encoder = None
+        self.decode = None
+        self._hp = {}
+
+    def save(self, ckpt_path):
+        """Saves the model's state and hyperparameters."""
+        torch.save(
+            {'model': self.state_dict(), 'hp': self._hp},
+            ckpt_path
+        )
+
+    @staticmethod
+    def _check_parameters(params, model_cls):
+        """Checks the hyperparameters of model"""
+        args = set(getfullargspec(model_cls.__init__).args)
+        params = {key: value for key, value in params.items() if key in args}
+        return params
+
+    @staticmethod
+    def _from_hparam_dict(params, model_cls):
+        """Builds the model from the parameters dict."""
+        params = _CaptioningModel._check_parameters(params, model_cls)
+        return model_cls(**params)
+
+    @staticmethod
+    @abstractmethod
+    def from_hparam_dict(params):
+        pass
+
+    @staticmethod
+    def _from_pretrained(ckpt_path, model_cls):
+        """Loads and builds the model from the checkpoint file."""
+        ckpt = torch.load(ckpt_path, map_location='cpu')
+        model = model_cls.from_hparam_dict(ckpt['hp'])
+        model.load_state_dict(ckpt['model'])
+        return model
+
+    @staticmethod
+    @abstractmethod
+    def from_pretrained(ckpt_path):
+        pass
+
+
+class CaptioningLSTM(_CaptioningModel):
     """LSTM-based image captioning model.
 
     Encodes input images into a embeddings of size `emb_dim`
@@ -73,32 +124,18 @@ class CaptioningLSTM(nn.Module):
 
         return sampled_ids
 
-    def save(self, ckpt_path):
-        """Saves the model's state and hyperparameters."""
-        torch.save(
-            {'model': self.state_dict(), 'hp': self._hp},
-            ckpt_path
-        )
+    @staticmethod
+    def from_hparam_dict(params):
+        """Builds the model from the parameters dict."""
+        return _CaptioningModel._from_hparam_dict(params, CaptioningLSTM)
 
     @staticmethod
     def from_pretrained(ckpt_path):
         """Loads and builds the model from the checkpoint file."""
-        ckpt = torch.load(ckpt_path, map_location='cpu')
-        hp = ckpt['hp']
-
-        model = CaptioningLSTM(
-            num_tokens=hp['num_tokens'],
-            emb_dim=hp['emb_dim'],
-            hidden_size=hp['hidden_size'],
-            num_layers=hp['num_layers'],
-            enc_dropout=hp['enc_dropout'],
-            dec_dropout=hp['dec_dropout'],
-        )
-        model.load_state_dict(ckpt['model'])
-        return model
+        return _CaptioningModel._from_pretrained(ckpt_path, CaptioningLSTM)
 
 
-class CaptioningLSTMWithLabels(nn.Module):
+class CaptioningLSTMWithLabels(_CaptioningModel):
     """LSTM-based image captioning model with label inputs.
 
     Uses image and text label to condition the decoder.
@@ -170,32 +207,18 @@ class CaptioningLSTMWithLabels(nn.Module):
 
         return sampled_ids
 
-    def save(self, ckpt_path):
-        """Saves the model's state and hyperparameters."""
-        torch.save(
-            {'model': self.state_dict(), 'hp': self._hp},
-            ckpt_path
-        )
+    @staticmethod
+    def from_hparam_dict(params):
+        """Builds the model from the parameters dict."""
+        return _CaptioningModel._from_hparam_dict(params, CaptioningLSTMWithLabels)
 
     @staticmethod
     def from_pretrained(ckpt_path):
         """Loads and builds the model from the checkpoint file."""
-        ckpt = torch.load(ckpt_path, map_location='cpu')
-        hp = ckpt['hp']
-
-        model = CaptioningLSTMWithLabels(
-            num_tokens=hp['num_tokens'],
-            emb_dim=hp['emb_dim'],
-            hidden_size=hp['hidden_size'],
-            num_layers=hp['num_layers'],
-            enc_dropout=hp['enc_dropout'],
-            dec_dropout=hp['dec_dropout'],
-        )
-        model.load_state_dict(ckpt['model'])
-        return model
+        return _CaptioningModel._from_pretrained(ckpt_path, CaptioningLSTMWithLabels)
 
 
-class CaptioningTransformerBase(nn.Module):
+class CaptioningTransformerBase(_CaptioningModel):
     """Simple Transformer-based image captioning model without Encoder-Attention Decoder blocks.
 
     - ResNet-based [1] ImageEncoder for getting global and spatial image embeddings.
@@ -298,34 +321,18 @@ class CaptioningTransformerBase(nn.Module):
 
         return sampled_ids
 
-    def save(self, ckpt_path):
-        """Saves the model's state and hyperparameters."""
-        torch.save(
-            {'model': self.state_dict(), 'hp': self._hp},
-            ckpt_path
-        )
+    @staticmethod
+    def from_hparam_dict(params):
+        """Builds the model from the parameters dict."""
+        return _CaptioningModel._from_hparam_dict(params, CaptioningTransformerBase)
 
     @staticmethod
     def from_pretrained(ckpt_path):
         """Loads and builds the model from the checkpoint file."""
-        ckpt = torch.load(ckpt_path, map_location='cpu')
-        hp = ckpt['hp']
-
-        model = CaptioningTransformerBase(
-            num_tokens=hp['num_tokens'],
-            hid_dim=hp['hid_dim'],
-            n_layers=hp['n_layers'],
-            n_heads=hp['n_heads'],
-            pf_dim=hp['pf_dim'],
-            enc_dropout=hp['enc_dropout'],
-            dec_dropout=hp['dec_dropout'],
-            max_len=hp['max_len']
-        )
-        model.load_state_dict(ckpt['model'])
-        return model
+        return _CaptioningModel._from_pretrained(ckpt_path, CaptioningTransformerBase)
 
 
-class CaptioningTransformer(nn.Module):
+class CaptioningTransformer(_CaptioningModel):
     """Transformer-based image captioning model.
 
     - ResNet-based [1] ImageEncoder for getting global and spatial image embeddings.
@@ -429,28 +436,12 @@ class CaptioningTransformer(nn.Module):
 
         return sampled_ids
 
-    def save(self, ckpt_path):
-        """Saves the model's state and hyperparameters."""
-        torch.save(
-            {'model': self.state_dict(), 'hp': self._hp},
-            ckpt_path
-        )
+    @staticmethod
+    def from_hparam_dict(params):
+        """Builds the model from the parameters dict."""
+        return _CaptioningModel._from_hparam_dict(params, CaptioningTransformer)
 
     @staticmethod
     def from_pretrained(ckpt_path):
         """Loads and builds the model from the checkpoint file."""
-        ckpt = torch.load(ckpt_path, map_location='cpu')
-        hp = ckpt['hp']
-
-        model = CaptioningTransformer(
-            num_tokens=hp['num_tokens'],
-            hid_dim=hp['hid_dim'],
-            n_layers=hp['n_layers'],
-            n_heads=hp['n_heads'],
-            pf_dim=hp['pf_dim'],
-            enc_dropout=hp['enc_dropout'],
-            dec_dropout=hp['dec_dropout'],
-            max_len=hp['max_len']
-        )
-        model.load_state_dict(ckpt['model'])
-        return model
+        return _CaptioningModel._from_pretrained(ckpt_path, CaptioningTransformer)
